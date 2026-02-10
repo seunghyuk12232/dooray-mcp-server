@@ -27,7 +27,7 @@ fun createPostCommentTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "프로젝트 ID (dooray_project_list_projects로 조회 가능)"
+                                "프로젝트 ID (선택사항, 생략 시 post_id로 자동 조회)"
                             )
                         }
                         putJsonObject("post_id") {
@@ -50,7 +50,7 @@ fun createPostCommentTool(): Tool {
                             put("default", "text/x-markdown")
                         }
                     },
-                required = listOf("project_id", "post_id", "content")
+                required = listOf("post_id", "content")
             ),
         outputSchema = null,
         annotations = null
@@ -67,20 +67,6 @@ fun createPostCommentHandler(
             val content = request.arguments["content"]?.jsonPrimitive?.content
             val mimeType =
                 request.arguments["mime_type"]?.jsonPrimitive?.content ?: "text/x-markdown"
-
-            if (projectId.isNullOrBlank()) {
-                val errorResponse =
-                    ToolException(
-                        type = ToolException.PARAMETER_MISSING,
-                        message = "project_id 파라미터가 필요합니다.",
-                        code = "MISSING_PROJECT_ID"
-                    )
-                        .toErrorResponse()
-
-                return@handler CallToolResult(
-                    content = listOf(TextContent(JsonUtils.toJsonString(errorResponse)))
-                )
-            }
 
             if (postId.isNullOrBlank()) {
                 val errorResponse =
@@ -110,12 +96,14 @@ fun createPostCommentHandler(
                 )
             }
 
+            val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+
             val createRequest =
                 CreateCommentRequest(
                     body = PostCommentBody(mimeType = mimeType, content = content)
                 )
 
-            val response = doorayClient.createPostComment(projectId, postId, createRequest)
+            val response = doorayClient.createPostComment(resolvedProjectId, postId, createRequest)
 
             if (response.header.isSuccessful) {
                 val successResponse =
@@ -142,8 +130,7 @@ fun createPostCommentHandler(
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 

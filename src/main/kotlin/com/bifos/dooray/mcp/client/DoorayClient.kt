@@ -138,4 +138,12 @@ interface DoorayClient {
         scope: String? = null,
         state: String? = null
     ): ProjectListResponse
+
+    // ============ ID 자동 조회 (resolve) API ============
+
+    /** post_id로 project_id를 자동으로 찾습니다. 모든 접근 가능한 프로젝트를 순회하여 해당 업무가 속한 프로젝트를 반환합니다. */
+    suspend fun resolveProjectIdForPost(postId: String): String
+
+    /** page_id로 wiki_id를 자동으로 찾습니다. 모든 접근 가능한 위키를 순회하여 해당 페이지가 속한 위키를 반환합니다. */
+    suspend fun resolveWikiIdForPage(pageId: String): String
 }

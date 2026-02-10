@@ -487,16 +487,57 @@ class McpToolsUnitTest {
     }
 
     @Test
-    @DisplayName("업무 댓글 목록 조회 도구 - project_id 누락 에러")
-    fun testGetPostCommentsHandlerMissingProjectId() = runTest {
+    @DisplayName("업무 댓글 목록 조회 도구 - project_id 생략 시 자동 조회로 성공")
+    fun testGetPostCommentsHandlerAutoResolveProjectId() = runTest {
         // given
         val mockDoorayClient = mockk<DoorayClient>()
+
+        // resolveProjectIdForPost 모킹
+        coEvery { mockDoorayClient.resolveProjectIdForPost("post1") } returns "resolved_project1"
+
+        val mockComments =
+            listOf(
+                PostComment(
+                    id = "comment1",
+                    post = PostInfo(id = "post1"),
+                    type = "comment",
+                    subtype = "general",
+                    createdAt = "2025-01-25T10:00:00+09:00",
+                    modifiedAt = null,
+                    creator =
+                        PostUser(
+                            type = "member",
+                            member = Member(organizationMemberId = "member1")
+                        ),
+                    mailUsers = null,
+                    body =
+                        PostCommentBody(
+                            mimeType = "text/html",
+                            content = "테스트 댓글입니다."
+                        ),
+                    files = null
+                )
+            )
+        val mockResponse =
+            PostCommentListResponse(
+                header =
+                    DoorayApiHeader(
+                        isSuccessful = true,
+                        resultCode = 0,
+                        resultMessage = "success"
+                    ),
+                result = mockComments,
+                totalCount = 1
+            )
+
+        coEvery { mockDoorayClient.getPostComments("resolved_project1", "post1", any(), any(), any()) } returns
+                mockResponse
 
         val mockRequest = mockk<CallToolRequest>()
         every { mockRequest.arguments } returns
                 buildJsonObject {
                     put("post_id", "post1")
-                    // project_id 누락
+                    // project_id 생략 - 자동 조회
                 }
 
         // when
@@ -507,8 +548,8 @@ class McpToolsUnitTest {
         assertTrue(result.content.isNotEmpty())
         val content = result.content.first() as TextContent
         val responseText = content.text ?: ""
-        assertContains(responseText, "\"isError\": true")
-        assertContains(responseText, "MISSING_PROJECT_ID")
+        assertContains(responseText, "\"success\": true")
+        assertContains(responseText, "테스트 댓글입니다")
     }
 
     @Test

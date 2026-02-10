@@ -23,7 +23,7 @@ fun updateWikiPageTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "위키 ID (dooray_wiki_list_projects로 조회 가능)"
+                                "위키 ID (선택사항, 생략 시 page_id로 자동 조회)"
                             )
                         }
                         putJsonObject("page_id") {
@@ -53,7 +53,7 @@ fun updateWikiPageTool(): Tool {
                             putJsonObject("items") { put("type", "string") }
                         }
                     },
-                required = listOf("wiki_id", "page_id")
+                required = listOf("page_id")
             ),
         outputSchema = null,
         annotations = null
@@ -61,7 +61,7 @@ fun updateWikiPageTool(): Tool {
 }
 
 data class UpdateWikiPageParams(
-    val wikiId: String,
+    val wikiId: String?,
     val pageId: String,
     val newSubject: String?,
     val newBodyContent: String?,
@@ -76,14 +76,14 @@ fun updateWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
                 validationResult
             } else {
                 val params = extractUpdateWikiPageParams(request)
-                performUpdateWikiPage(doorayClient, params)
+                val resolvedWikiId = params.wikiId ?: doorayClient.resolveWikiIdForPage(params.pageId)
+                performUpdateWikiPage(doorayClient, params.copy(wikiId = resolvedWikiId))
             }
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 
@@ -102,19 +102,6 @@ private fun validateUpdateWikiPageParams(request: CallToolRequest): CallToolResu
         request.arguments["referrer_member_ids"]?.jsonArray?.map { it.jsonPrimitive.content }
 
     return when {
-        wikiId == null -> {
-            val errorResponse =
-                ToolException(
-                    type = ToolException.PARAMETER_MISSING,
-                    message =
-                        "wiki_id 파라미터가 필요합니다. dooray_wiki_list_projects를 사용해서 위키 ID를 먼저 조회하세요.",
-                    code = "MISSING_WIKI_ID"
-                )
-                    .toErrorResponse()
-
-            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(errorResponse))))
-        }
-
         pageId == null -> {
             val errorResponse =
                 ToolException(
@@ -147,7 +134,7 @@ private fun validateUpdateWikiPageParams(request: CallToolRequest): CallToolResu
 
 /** 파라미터 추출 */
 private fun extractUpdateWikiPageParams(request: CallToolRequest): UpdateWikiPageParams {
-    val wikiId = request.arguments["wiki_id"]?.jsonPrimitive?.content!!
+    val wikiId = request.arguments["wiki_id"]?.jsonPrimitive?.content
     val pageId = request.arguments["page_id"]?.jsonPrimitive?.content!!
     val newSubject = request.arguments["subject"]?.jsonPrimitive?.content
     val newBodyContent = request.arguments["body"]?.jsonPrimitive?.content
@@ -168,8 +155,10 @@ private suspend fun performUpdateWikiPage(
     doorayClient: DoorayClient,
     params: UpdateWikiPageParams
 ): CallToolResult {
+    val wikiId = params.wikiId!!
+
     // 1. 기존 위키 페이지 조회
-    val currentPageResponse = doorayClient.getWikiPage(params.wikiId, params.pageId)
+    val currentPageResponse = doorayClient.getWikiPage(wikiId, params.pageId)
 
     if (!currentPageResponse.header.isSuccessful) {
         val errorResponse =
@@ -211,7 +200,7 @@ private suspend fun performUpdateWikiPage(
         )
 
     // 5. 업데이트 요청 전송
-    val response = doorayClient.updateWikiPage(params.wikiId, params.pageId, updateRequest)
+    val response = doorayClient.updateWikiPage(wikiId, params.pageId, updateRequest)
 
     return if (response.header.isSuccessful) {
         val updateParts = mutableListOf<String>()
@@ -225,7 +214,7 @@ private suspend fun performUpdateWikiPage(
             ToolSuccessResponse(
                 data =
                     buildJsonObject {
-                        put("wiki_id", params.wikiId)
+                        put("wiki_id", wikiId)
                         put("page_id", params.pageId)
                         put("subject", finalSubject)
                         put("updated_fields", updatedFields)

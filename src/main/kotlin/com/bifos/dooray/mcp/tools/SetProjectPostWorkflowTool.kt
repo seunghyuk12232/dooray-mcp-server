@@ -23,7 +23,7 @@ fun setProjectPostWorkflowTool(): Tool {
                     buildJsonObject {
                         putJsonObject("project_id") {
                             put("type", "string")
-                            put("description", "프로젝트 ID (필수)")
+                            put("description", "프로젝트 ID (선택사항, 생략 시 post_id로 자동 조회)")
                         }
                         putJsonObject("post_id") {
                             put("type", "string")
@@ -37,7 +37,7 @@ fun setProjectPostWorkflowTool(): Tool {
                             put("description", "변경할 워크플로우 ID (필수)")
                         }
                     },
-                required = listOf("project_id", "post_id", "workflow_id")
+                required = listOf("post_id", "workflow_id")
             ),
         outputSchema = null,
         annotations = null
@@ -54,20 +54,6 @@ fun setProjectPostWorkflowHandler(
             val workflowId = request.arguments["workflow_id"]?.jsonPrimitive?.content
 
             when {
-                projectId == null -> {
-                    val errorResponse =
-                        ToolException(
-                            type = ToolException.PARAMETER_MISSING,
-                            message = "project_id 파라미터가 필요합니다. 프로젝트 ID를 입력하세요.",
-                            code = "MISSING_PROJECT_ID"
-                        )
-                            .toErrorResponse()
-
-                    CallToolResult(
-                        content = listOf(TextContent(JsonUtils.toJsonString(errorResponse)))
-                    )
-                }
-
                 postId == null -> {
                     val errorResponse =
                         ToolException(
@@ -99,7 +85,8 @@ fun setProjectPostWorkflowHandler(
                 }
 
                 else -> {
-                    val response = doorayClient.setPostWorkflow(projectId, postId, workflowId)
+                    val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+                    val response = doorayClient.setPostWorkflow(resolvedProjectId, postId, workflowId)
 
                     if (response.header.isSuccessful) {
                         val nextStepHint =
@@ -136,8 +123,7 @@ fun setProjectPostWorkflowHandler(
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 

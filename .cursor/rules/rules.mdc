@@ -7,7 +7,7 @@ alwaysApply: true
 # Dooray MCP Server
 
 - NHN Dooray 서비스의 MCP 서버를 제작하는 프로젝트이다.
-- 해당 프로젝트는 kotlin을 사용하며, kotlin-mcp-sdk 0.5.0 버전을 사용한다.
+- 해당 프로젝트는 kotlin을 사용하며, kotlin-mcp-sdk 0.6.0 버전을 사용한다.
 - 외부에 공개할 프로젝트이므로, 절대로 personal token 등의 정보를 코드에 사용하지 않는다.
 
 ## 환경변수
@@ -488,7 +488,7 @@ class WikiDoorayIntegrationTest : BaseDoorayIntegrationTest() {
 # 직접 실행 (환경변수 필요)
 export DOORAY_API_KEY="your_api_key"
 export DOORAY_BASE_URL="https://api.dooray.com"
-java -jar build/libs/dooray-mcp-server-0.1.5-all.jar
+java -jar build/libs/dooray-mcp-server-0.2.1-all.jar
 ```
 
 ### CI/CD 파이프라인
@@ -632,8 +632,8 @@ suspend fun updateWikiPageContent(wikiId: String, pageId: String, body: String):
 1. **gradle.properties**: 빌드 시스템 버전 관리
 
 ```properties
-project.version=0.1.5
-mcp.version=0.5.0
+project.version=0.2.1
+mcp.version=0.6.0
 ktor.version=3.1.1
 logback.version=1.5.18
 ```
@@ -642,7 +642,7 @@ logback.version=1.5.18
 
 ```kotlin
 object VersionConst {
-    const val VERSION = "0.1.5"  // gradle.properties와 동일하게 유지
+    const val VERSION = "0.2.1"  // gradle.properties와 동일하게 유지
     const val CHANGELOG = "..."  // 버전 히스토리
 }
 ```

@@ -78,6 +78,11 @@ class DoorayMcpServer {
             System.getenv(DOORAY_API_KEY)
                 ?: throw IllegalArgumentException("DOORAY_API_KEY is required.")
 
+        // HTTPS 프로토콜 강제 검증
+        if (!baseUrl.startsWith("https://")) {
+            throw IllegalArgumentException("DOORAY_BASE_URL must use HTTPS protocol. Current: $baseUrl")
+        }
+
         return mapOf(
             DOORAY_BASE_URL to baseUrl,
             DOORAY_API_KEY to apiKey,

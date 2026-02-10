@@ -70,7 +70,8 @@ tasks.register<JavaExec>("runLocal") {
                         val key = parts[0].trim()
                         val value = parts[1].trim().removeSurrounding("\"").removeSurrounding("'")
                         environment(key, value)
-                        println("  ✅ $key = $value")
+                        val maskedValue = if (value.length > 4) value.take(4) + "****" else "****"
+                        println("  ✅ $key = $maskedValue")
                     }
                 }
             }

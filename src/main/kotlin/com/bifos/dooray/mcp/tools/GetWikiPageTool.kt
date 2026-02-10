@@ -26,7 +26,7 @@ fun getWikiPageTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "위키 프로젝트 ID (dooray_wiki_list_projects로 조회 가능)"
+                                "위키 프로젝트 ID (선택사항, 생략 시 page_id로 자동 조회)"
                             )
                         }
                         putJsonObject("page_id") {
@@ -37,7 +37,7 @@ fun getWikiPageTool(): Tool {
                             )
                         }
                     },
-                required = listOf("project_id", "page_id")
+                required = listOf("page_id")
             ),
         outputSchema = null,
         annotations = null
@@ -51,21 +51,6 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
             val pageId = request.arguments["page_id"]?.jsonPrimitive?.content
 
             when {
-                projectId == null -> {
-                    val errorResponse =
-                        ToolException(
-                            type = ToolException.PARAMETER_MISSING,
-                            message =
-                                "project_id 파라미터가 필요합니다. dooray_wiki_list_projects를 사용해서 프로젝트 ID를 먼저 조회하세요.",
-                            code = "MISSING_PROJECT_ID"
-                        )
-                            .toErrorResponse()
-
-                    CallToolResult(
-                        content = listOf(TextContent(JsonUtils.toJsonString(errorResponse)))
-                    )
-                }
-
                 pageId == null -> {
                     val errorResponse =
                         ToolException(
@@ -82,7 +67,8 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
                 }
 
                 else -> {
-                    val response = doorayClient.getWikiPage(projectId, pageId)
+                    val resolvedProjectId = projectId ?: doorayClient.resolveWikiIdForPage(pageId)
+                    val response = doorayClient.getWikiPage(resolvedProjectId, pageId)
 
                     if (response.header.isSuccessful) {
                         val successResponse =
@@ -115,8 +101,7 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 

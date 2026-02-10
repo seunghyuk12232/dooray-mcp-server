@@ -27,7 +27,7 @@ fun updatePostCommentTool(): Tool {
                                             put("type", "string")
                                             put(
                                                     "description",
-                                                    "프로젝트 ID (dooray_project_list_projects로 조회 가능)"
+                                                    "프로젝트 ID (선택사항, 생략 시 post_id로 자동 조회)"
                                             )
                                         }
                                         putJsonObject("post_id") {
@@ -57,7 +57,7 @@ fun updatePostCommentTool(): Tool {
                                             put("default", "text/x-markdown")
                                         }
                                     },
-                            required = listOf("project_id", "post_id", "log_id", "content")
+                            required = listOf("post_id", "log_id", "content")
                     ),
             outputSchema = null,
             annotations = null
@@ -75,20 +75,6 @@ fun updatePostCommentHandler(
             val content = request.arguments["content"]?.jsonPrimitive?.content
             val mimeType =
                     request.arguments["mime_type"]?.jsonPrimitive?.content ?: "text/x-markdown"
-
-            if (projectId.isNullOrBlank()) {
-                val errorResponse =
-                        ToolException(
-                                        type = ToolException.PARAMETER_MISSING,
-                                        message = "project_id 파라미터가 필요합니다.",
-                                        code = "MISSING_PROJECT_ID"
-                                )
-                                .toErrorResponse()
-
-                return@handler CallToolResult(
-                        content = listOf(TextContent(JsonUtils.toJsonString(errorResponse)))
-                )
-            }
 
             if (postId.isNullOrBlank()) {
                 val errorResponse =
@@ -132,12 +118,14 @@ fun updatePostCommentHandler(
                 )
             }
 
+            val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+
             val updateRequest =
                     UpdateCommentRequest(
                             body = PostCommentBody(mimeType = mimeType, content = content)
                     )
 
-            val response = doorayClient.updatePostComment(projectId, postId, logId, updateRequest)
+            val response = doorayClient.updatePostComment(resolvedProjectId, postId, logId, updateRequest)
 
             if (response.header.isSuccessful) {
                 val successResponse =
@@ -161,8 +149,7 @@ fun updatePostCommentHandler(
             val errorResponse =
                     ToolException(
                                     type = ToolException.INTERNAL_ERROR,
-                                    message = "내부 오류가 발생했습니다: ${e.message}",
-                                    details = e.stackTraceToString()
+                                    message = "내부 오류가 발생했습니다: ${e.message}"
                             )
                             .toErrorResponse()
 

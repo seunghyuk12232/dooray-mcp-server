@@ -84,8 +84,7 @@ fun getWikisHandler(doorayClient: DoorayClient): suspend (CallToolRequest) -> Ca
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 

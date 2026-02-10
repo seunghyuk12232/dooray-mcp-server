@@ -11,14 +11,25 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: String) :
         DoorayClient {
 
+    companion object {
+        private const val MAX_CACHE_SIZE = 500
+    }
+
     private val log = LoggerFactory.getLogger(DoorayHttpClient::class.java)
     private val httpClient: HttpClient
+
+    // post_id -> project_id 매핑 캐시
+    private val postProjectIdCache = ConcurrentHashMap<String, String>()
+    // page_id -> wiki_id 매핑 캐시
+    private val pageWikiIdCache = ConcurrentHashMap<String, String>()
 
     init {
         httpClient = initHttpClient()
@@ -59,6 +70,12 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
                             "INFO" -> LogLevel.INFO
                             else -> LogLevel.NONE // 기본값: 로깅 비활성화
                         }
+            }
+
+            install(HttpTimeout) {
+                requestTimeoutMillis = 10_000
+                connectTimeoutMillis = 5_000
+                socketTimeoutMillis = 10_000
             }
         }
     }
@@ -452,6 +469,87 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
                 scope?.let { parameter("scope", it) }
                 state?.let { parameter("state", it) }
             }
+        }
+    }
+
+    // ============ ID 자동 조회 (resolve) API 구현 ============
+
+    override suspend fun resolveProjectIdForPost(postId: String): String {
+        // 캐시에 있으면 바로 반환
+        postProjectIdCache[postId]?.let { return it }
+
+        log.info("🔍 post_id=$postId 에 대한 project_id 자동 조회 시작...")
+
+        return withTimeout(30_000) {
+            var page = 0
+            val pageSize = 100
+
+            while (true) {
+                val projectsResponse = getProjects(page = page, size = pageSize)
+                if (!projectsResponse.header.isSuccessful || projectsResponse.result.isEmpty()) {
+                    break
+                }
+
+                for (project in projectsResponse.result) {
+                    try {
+                        val postResponse = getPost(project.id, postId)
+                        if (postResponse.header.isSuccessful) {
+                            log.info("✅ post_id=$postId → project_id=${project.id} (${project.code}) 매핑 완료")
+                            if (postProjectIdCache.size < MAX_CACHE_SIZE) {
+                                postProjectIdCache[postId] = project.id
+                            }
+                            return@withTimeout project.id
+                        }
+                    } catch (e: Exception) {
+                        // 해당 프로젝트에 업무가 없으면 다음 프로젝트로
+                        log.debug("프로젝트 ${project.id}(${project.code})에서 업무 $postId 미발견")
+                    }
+                }
+
+                if (projectsResponse.result.size < pageSize) break
+                page++
+            }
+
+            throw CustomException("post_id=$postId 에 해당하는 프로젝트를 찾을 수 없습니다. 접근 권한이 있는 프로젝트에 해당 업무가 존재하는지 확인하세요.", null)
+        }
+    }
+
+    override suspend fun resolveWikiIdForPage(pageId: String): String {
+        // 캐시에 있으면 바로 반환
+        pageWikiIdCache[pageId]?.let { return it }
+
+        log.info("🔍 page_id=$pageId 에 대한 wiki_id 자동 조회 시작...")
+
+        return withTimeout(30_000) {
+            var page = 0
+            val pageSize = 200
+
+            while (true) {
+                val wikisResponse = getWikis(page = page, size = pageSize)
+                if (!wikisResponse.header.isSuccessful || wikisResponse.result.isEmpty()) {
+                    break
+                }
+
+                for (wiki in wikisResponse.result) {
+                    try {
+                        val wikiPageResponse = getWikiPage(wiki.id, pageId)
+                        if (wikiPageResponse.header.isSuccessful) {
+                            log.info("✅ page_id=$pageId → wiki_id=${wiki.id} (${wiki.name}) 매핑 완료")
+                            if (pageWikiIdCache.size < MAX_CACHE_SIZE) {
+                                pageWikiIdCache[pageId] = wiki.id
+                            }
+                            return@withTimeout wiki.id
+                        }
+                    } catch (e: Exception) {
+                        log.debug("위키 ${wiki.id}(${wiki.name})에서 페이지 $pageId 미발견")
+                    }
+                }
+
+                if (wikisResponse.result.size < pageSize) break
+                page++
+            }
+
+            throw CustomException("page_id=$pageId 에 해당하는 위키를 찾을 수 없습니다. 접근 권한이 있는 위키에 해당 페이지가 존재하는지 확인하세요.", null)
         }
     }
 }

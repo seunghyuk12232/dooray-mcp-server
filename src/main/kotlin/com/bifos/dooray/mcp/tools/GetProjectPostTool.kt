@@ -23,7 +23,7 @@ fun getProjectPostTool(): Tool {
                     buildJsonObject {
                         putJsonObject("project_id") {
                             put("type", "string")
-                            put("description", "프로젝트 ID (필수)")
+                            put("description", "프로젝트 ID (선택사항, 생략 시 post_id로 자동 조회)")
                         }
                         putJsonObject("post_id") {
                             put("type", "string")
@@ -33,7 +33,7 @@ fun getProjectPostTool(): Tool {
                             )
                         }
                     },
-                required = listOf("project_id", "post_id")
+                required = listOf("post_id")
             ),
         outputSchema = null,
         annotations = null
@@ -47,20 +47,6 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
             val postId = request.arguments["post_id"]?.jsonPrimitive?.content
 
             when {
-                projectId == null -> {
-                    val errorResponse =
-                        ToolException(
-                            type = ToolException.PARAMETER_MISSING,
-                            message = "project_id 파라미터가 필요합니다. 프로젝트 ID를 입력하세요.",
-                            code = "MISSING_PROJECT_ID"
-                        )
-                            .toErrorResponse()
-
-                    CallToolResult(
-                        content = listOf(TextContent(JsonUtils.toJsonString(errorResponse)))
-                    )
-                }
-
                 postId == null -> {
                     val errorResponse =
                         ToolException(
@@ -77,7 +63,8 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
                 }
 
                 else -> {
-                    val response = doorayClient.getPost(projectId, postId)
+                    val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+                    val response = doorayClient.getPost(resolvedProjectId, postId)
 
                     if (response.header.isSuccessful) {
                         val post = response.result
@@ -117,8 +104,7 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
             val errorResponse =
                 ToolException(
                     type = ToolException.INTERNAL_ERROR,
-                    message = "내부 오류가 발생했습니다: ${e.message}",
-                    details = e.stackTraceToString()
+                    message = "내부 오류가 발생했습니다: ${e.message}"
                 )
                     .toErrorResponse()
 

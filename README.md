@@ -67,9 +67,9 @@ docker run -e DOORAY_API_KEY="your_api_key" \
            bifos/dooray-mcp:latest
 ```
 
-## 사용 가능한 도구 (총 19개)
+## 사용 가능한 도구 (총 16개)
 
-### 위키 관련 도구 (8개)
+### 위키 관련 도구 (5개)
 
 #### 1. dooray_wiki_list_projects
 
@@ -89,67 +89,55 @@ docker run -e DOORAY_API_KEY="your_api_key" \
 
 #### 5. dooray_wiki_update_page
 
-기존 위키 페이지를 수정합니다.
-
-#### 6. dooray_wiki_update_page_title
-
-위키 페이지의 제목만 수정합니다.
-
-#### 7. dooray_wiki_update_page_content
-
-위키 페이지의 내용만 수정합니다.
-
-#### 8. dooray_wiki_update_page_referrers
-
-위키 페이지의 참조자를 수정합니다.
+기존 위키 페이지를 수정합니다. 제목, 내용, 참조자를 한 번에 수정할 수 있습니다.
 
 ### 프로젝트 관련 도구 (1개)
 
-#### 9. dooray_project_list_projects
+#### 6. dooray_project_list_projects
 
 접근 가능한 프로젝트 목록을 조회합니다.
 
 ### 업무 관련 도구 (6개)
 
-#### 10. dooray_project_list_posts
+#### 7. dooray_project_list_posts
 
 프로젝트의 업무 목록을 조회합니다.
 
-#### 11. dooray_project_get_post
+#### 8. dooray_project_get_post
 
 특정 업무의 상세 정보를 조회합니다.
 
-#### 12. dooray_project_create_post
+#### 9. dooray_project_create_post
 
 새로운 업무를 생성합니다.
 
-#### 13. dooray_project_update_post
+#### 10. dooray_project_update_post
 
 기존 업무를 수정합니다.
 
-#### 14. dooray_project_set_post_workflow
+#### 11. dooray_project_set_post_workflow
 
 업무의 상태(워크플로우)를 변경합니다.
 
-#### 15. dooray_project_set_post_done
+#### 12. dooray_project_set_post_done
 
 업무를 완료 상태로 변경합니다.
 
 ### 업무 댓글 관련 도구 (4개)
 
-#### 16. dooray_project_create_post_comment
+#### 13. dooray_project_create_post_comment
 
 업무에 댓글을 생성합니다.
 
-#### 17. dooray_project_get_post_comments
+#### 14. dooray_project_get_post_comments
 
 업무의 댓글 목록을 조회합니다.
 
-#### 18. dooray_project_update_post_comment
+#### 15. dooray_project_update_post_comment
 
 업무 댓글을 수정합니다.
 
-#### 19. dooray_project_delete_post_comment
+#### 16. dooray_project_delete_post_comment
 
 업무 댓글을 삭제합니다.
 
