@@ -6,6 +6,7 @@ import com.bifos.dooray.mcp.constants.EnvVariableConst
 import com.bifos.dooray.mcp.util.parseEnv
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
 
@@ -24,6 +25,18 @@ abstract class BaseDoorayIntegrationTest {
     @BeforeAll
     fun setup() {
         val env = parseEnv()
+        val missingKeys =
+            listOf(
+                EnvVariableConst.DOORAY_BASE_URL,
+                EnvVariableConst.DOORAY_API_KEY,
+                EnvVariableConst.DOORAY_TEST_PROJECT_ID,
+                EnvVariableConst.DOORAY_TEST_WIKI_ID
+            ).filter { env[it].isNullOrBlank() }
+
+        assumeTrue(
+            missingKeys.isEmpty(),
+            "Dooray 통합 테스트를 건너뜁니다. 누락된 환경변수: ${missingKeys.joinToString(", ")}"
+        )
 
         val baseUrl =
             env[EnvVariableConst.DOORAY_BASE_URL]
