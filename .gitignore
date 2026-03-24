@@ -37,6 +37,7 @@ bin/
 
 ### VS Code ###
 .vscode/
+.omc/
 
 ### Mac OS ###
 .DS_Store
