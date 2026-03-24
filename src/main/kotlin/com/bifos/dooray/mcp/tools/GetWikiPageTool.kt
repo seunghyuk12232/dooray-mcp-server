@@ -3,6 +3,7 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -33,7 +34,7 @@ fun getWikiPageTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "위키 페이지 ID (dooray_wiki_list_pages로 조회 가능)"
+                                "위키 페이지 ID 또는 Dooray 웹 URL (예: /project/pages/{pageId}, /wiki/from/{wikiId}/{pageId})"
                             )
                         }
                     },
@@ -48,10 +49,13 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
     return { request ->
         try {
             val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
-            val pageId = request.arguments["page_id"]?.jsonPrimitive?.content
+            val pageRef =
+                DoorayWebInputUtils.normalizeWikiPageReference(
+                    request.arguments["page_id"]?.jsonPrimitive?.content
+                )
 
             when {
-                pageId == null -> {
+                pageRef == null -> {
                     val errorResponse =
                         ToolException(
                             type = ToolException.PARAMETER_MISSING,
@@ -67,8 +71,9 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
                 }
 
                 else -> {
-                    val resolvedProjectId = projectId ?: doorayClient.resolveWikiIdForPage(pageId)
-                    val response = doorayClient.getWikiPage(resolvedProjectId, pageId)
+                    val resolvedProjectId =
+                        projectId ?: pageRef.wikiId ?: doorayClient.resolveWikiIdForPage(pageRef.pageId)
+                    val response = doorayClient.getWikiPage(resolvedProjectId, pageRef.pageId)
 
                     if (response.header.isSuccessful) {
                         val successResponse =
@@ -97,6 +102,8 @@ fun getWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) ->
                     }
                 }
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(

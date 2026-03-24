@@ -3,6 +3,7 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -40,6 +41,11 @@ fun getProjectPostsTool(): Tool {
                             putJsonObject("items") { put("type", "string") }
                             put("description", "담당자 멤버 ID 목록 (선택사항)")
                         }
+                        putJsonObject("from_member_ids") {
+                            put("type", "array")
+                            putJsonObject("items") { put("type", "string") }
+                            put("description", "등록자 멤버 ID 목록 (선택사항)")
+                        }
                         putJsonObject("cc_member_ids") {
                             put("type", "array")
                             putJsonObject("items") { put("type", "string") }
@@ -65,14 +71,35 @@ fun getProjectPostsTool(): Tool {
                                 "워크플로우 클래스 (backlog, registered, working, closed) (선택사항)"
                             )
                         }
+                        putJsonObject("post_workflow_ids") {
+                            put("type", "array")
+                            putJsonObject("items") { put("type", "string") }
+                            put("description", "워크플로우 ID 목록 (선택사항)")
+                        }
                         putJsonObject("milestone_ids") {
                             put("type", "array")
                             putJsonObject("items") { put("type", "string") }
                             put("description", "마일스톤 ID 목록 (선택사항)")
                         }
+                        putJsonObject("post_number") {
+                            put("type", "string")
+                            put("description", "업무 번호 (선택사항)")
+                        }
                         putJsonObject("subjects") {
                             put("type", "string")
                             put("description", "업무 제목 검색어 (선택사항)")
+                        }
+                        putJsonObject("created_at") {
+                            put("type", "string")
+                            put("description", "생성일 필터 값 (선택사항)")
+                        }
+                        putJsonObject("updated_at") {
+                            put("type", "string")
+                            put("description", "수정일 필터 값 (선택사항)")
+                        }
+                        putJsonObject("due_at") {
+                            put("type", "string")
+                            put("description", "만기일 필터 값 (선택사항)")
                         }
                         putJsonObject("order") {
                             put("type", "string")
@@ -94,7 +121,11 @@ fun getProjectPostsHandler(
 ): suspend (CallToolRequest) -> CallToolResult {
     return { request ->
         try {
-            val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
+            val projectId =
+                DoorayWebInputUtils.requireRawId(
+                    parameterName = "project_id",
+                    input = request.arguments["project_id"]?.jsonPrimitive?.content
+                )
 
             if (projectId == null) {
                 val errorResponse =
@@ -115,6 +146,10 @@ fun getProjectPostsHandler(
                     request.arguments["to_member_ids"]?.let { element ->
                         JsonUtils.parseStringArray(element.toString())
                     }
+                val fromMemberIds =
+                    request.arguments["from_member_ids"]?.let { element ->
+                        JsonUtils.parseStringArray(element.toString())
+                    }
                 val ccMemberIds =
                     request.arguments["cc_member_ids"]?.let { element ->
                         JsonUtils.parseStringArray(element.toString())
@@ -127,6 +162,10 @@ fun getProjectPostsHandler(
                     request.arguments["post_workflow_classes"]?.let { element ->
                         JsonUtils.parseStringArray(element.toString())
                     }
+                val postWorkflowIds =
+                    request.arguments["post_workflow_ids"]?.let { element ->
+                        JsonUtils.parseStringArray(element.toString())
+                    }
                 val milestoneIds =
                     request.arguments["milestone_ids"]?.let { element ->
                         JsonUtils.parseStringArray(element.toString())
@@ -134,7 +173,11 @@ fun getProjectPostsHandler(
 
                 // 단일 값 파라미터 처리
                 val parentPostId = request.arguments["parent_post_id"]?.jsonPrimitive?.content
+                val postNumber = request.arguments["post_number"]?.jsonPrimitive?.content
                 val subjects = request.arguments["subjects"]?.jsonPrimitive?.content
+                val createdAt = request.arguments["created_at"]?.jsonPrimitive?.content
+                val updatedAt = request.arguments["updated_at"]?.jsonPrimitive?.content
+                val dueAt = request.arguments["due_at"]?.jsonPrimitive?.content
                 val order = request.arguments["order"]?.jsonPrimitive?.content
 
                 val response =
@@ -142,13 +185,19 @@ fun getProjectPostsHandler(
                         projectId = projectId,
                         page = page,
                         size = size,
+                        fromMemberIds = fromMemberIds,
                         toMemberIds = toMemberIds,
                         ccMemberIds = ccMemberIds,
                         tagIds = tagIds,
                         parentPostId = parentPostId,
+                        postNumber = postNumber,
                         postWorkflowClasses = postWorkflowClasses,
+                        postWorkflowIds = postWorkflowIds,
                         milestoneIds = milestoneIds,
                         subjects = subjects,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt,
+                        dueAt = dueAt,
                         order = order
                     )
 
@@ -187,6 +236,8 @@ fun getProjectPostsHandler(
                     )
                 }
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(

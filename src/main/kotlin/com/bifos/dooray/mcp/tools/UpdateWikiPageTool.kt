@@ -3,6 +3,8 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.*
+import com.bifos.dooray.mcp.utils.DoorayWikiPageReference
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -30,7 +32,7 @@ fun updateWikiPageTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "수정할 위키 페이지 ID (dooray_wiki_list_pages로 조회 가능)"
+                                "수정할 위키 페이지 ID 또는 Dooray 웹 URL (예: /project/pages/{pageId}, /wiki/from/{wikiId}/{pageId})"
                             )
                         }
                         putJsonObject("subject") {
@@ -71,14 +73,21 @@ data class UpdateWikiPageParams(
 fun updateWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest) -> CallToolResult {
     return { request ->
         try {
-            val validationResult = validateUpdateWikiPageParams(request)
+            val pageReference =
+                DoorayWebInputUtils.normalizeWikiPageReference(
+                    request.arguments["page_id"]?.jsonPrimitive?.content
+                )
+            val validationResult = validateUpdateWikiPageParams(request, pageReference)
             if (validationResult != null) {
                 validationResult
             } else {
-                val params = extractUpdateWikiPageParams(request)
-                val resolvedWikiId = params.wikiId ?: doorayClient.resolveWikiIdForPage(params.pageId)
+                val params = extractUpdateWikiPageParams(request, pageReference!!)
+                val resolvedWikiId =
+                    params.wikiId ?: doorayClient.resolveWikiIdForPage(params.pageId)
                 performUpdateWikiPage(doorayClient, params.copy(wikiId = resolvedWikiId))
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(
@@ -93,16 +102,17 @@ fun updateWikiPageHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
 }
 
 /** 파라미터 검증 */
-private fun validateUpdateWikiPageParams(request: CallToolRequest): CallToolResult? {
-    val wikiId = request.arguments["wiki_id"]?.jsonPrimitive?.content
-    val pageId = request.arguments["page_id"]?.jsonPrimitive?.content
+private fun validateUpdateWikiPageParams(
+    request: CallToolRequest,
+    pageReference: DoorayWikiPageReference?
+): CallToolResult? {
     val newSubject = request.arguments["subject"]?.jsonPrimitive?.content
     val newBodyContent = request.arguments["body"]?.jsonPrimitive?.content
     val referrerMemberIds =
         request.arguments["referrer_member_ids"]?.jsonArray?.map { it.jsonPrimitive.content }
 
     return when {
-        pageId == null -> {
+        pageReference == null -> {
             val errorResponse =
                 ToolException(
                     type = ToolException.PARAMETER_MISSING,
@@ -133,9 +143,11 @@ private fun validateUpdateWikiPageParams(request: CallToolRequest): CallToolResu
 }
 
 /** 파라미터 추출 */
-private fun extractUpdateWikiPageParams(request: CallToolRequest): UpdateWikiPageParams {
-    val wikiId = request.arguments["wiki_id"]?.jsonPrimitive?.content
-    val pageId = request.arguments["page_id"]?.jsonPrimitive?.content!!
+private fun extractUpdateWikiPageParams(
+    request: CallToolRequest,
+    pageReference: DoorayWikiPageReference
+): UpdateWikiPageParams {
+    val wikiId = request.arguments["wiki_id"]?.jsonPrimitive?.content ?: pageReference.wikiId
     val newSubject = request.arguments["subject"]?.jsonPrimitive?.content
     val newBodyContent = request.arguments["body"]?.jsonPrimitive?.content
     val referrerMemberIds =
@@ -143,7 +155,7 @@ private fun extractUpdateWikiPageParams(request: CallToolRequest): UpdateWikiPag
 
     return UpdateWikiPageParams(
         wikiId = wikiId,
-        pageId = pageId,
+        pageId = pageReference.pageId,
         newSubject = newSubject,
         newBodyContent = newBodyContent,
         referrerMemberIds = referrerMemberIds

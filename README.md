@@ -20,6 +20,7 @@ NHN Dooray 서비스의 MCP(Model Context Protocol) 서버입니다.
 ```bash
 export DOORAY_API_KEY="your_api_key"
 export DOORAY_BASE_URL="https://api.dooray.com"
+export DOORAY_WEB_HOST="nhnent.dooray.com"
 
 # 선택사항: 로깅 레벨 제어
 export DOORAY_LOG_LEVEL="WARN"         # DEBUG, INFO, WARN, ERROR (기본값: WARN)
@@ -236,6 +237,7 @@ env:
 | --------------- | ------------------- | --------- |
 | DOORAY_API_KEY  | Dooray API 키       | 필수      |
 | DOORAY_BASE_URL | Dooray API Base URL | 필수      |
+| DOORAY_WEB_HOST | 허용할 Dooray 웹 호스트 | 선택      |
 
 ## 라이선스
 

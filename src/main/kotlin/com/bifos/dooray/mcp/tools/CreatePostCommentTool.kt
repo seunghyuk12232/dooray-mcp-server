@@ -5,6 +5,7 @@ import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.CreateCommentRequest
 import com.bifos.dooray.mcp.types.PostCommentBody
 import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -34,7 +35,7 @@ fun createPostCommentTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "업무 ID (dooray_project_list_posts로 조회 가능)"
+                                "업무 ID 또는 Dooray 웹 URL (예: /project/tasks/{postId}, /task/to/{postId})"
                             )
                         }
                         putJsonObject("content") {
@@ -63,12 +64,15 @@ fun createPostCommentHandler(
     return handler@{ request ->
         try {
             val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
-            val postId = request.arguments["post_id"]?.jsonPrimitive?.content
+            val postRef =
+                DoorayWebInputUtils.normalizePostReference(
+                    request.arguments["post_id"]?.jsonPrimitive?.content
+                )
             val content = request.arguments["content"]?.jsonPrimitive?.content
             val mimeType =
                 request.arguments["mime_type"]?.jsonPrimitive?.content ?: "text/x-markdown"
 
-            if (postId.isNullOrBlank()) {
+            if (postRef == null) {
                 val errorResponse =
                     ToolException(
                         type = ToolException.PARAMETER_MISSING,
@@ -96,14 +100,16 @@ fun createPostCommentHandler(
                 )
             }
 
-            val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+            val resolvedProjectId =
+                projectId ?: postRef.projectId ?: doorayClient.resolveProjectIdForPost(postRef.postId)
 
             val createRequest =
                 CreateCommentRequest(
                     body = PostCommentBody(mimeType = mimeType, content = content)
                 )
 
-            val response = doorayClient.createPostComment(resolvedProjectId, postId, createRequest)
+            val response =
+                doorayClient.createPostComment(resolvedProjectId, postRef.postId, createRequest)
 
             if (response.header.isSuccessful) {
                 val successResponse =
@@ -126,6 +132,8 @@ fun createPostCommentHandler(
 
                 CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(errorResponse))))
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(

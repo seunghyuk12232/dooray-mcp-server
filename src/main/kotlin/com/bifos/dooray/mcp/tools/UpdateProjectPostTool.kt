@@ -3,6 +3,7 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.*
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -29,7 +30,7 @@ fun updateProjectPostTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "수정할 업무 ID (dooray_project_list_posts로 조회 가능)"
+                                "수정할 업무 ID 또는 Dooray 웹 URL (예: /project/tasks/{postId}, /task/to/{postId})"
                             )
                         }
                         putJsonObject("subject") {
@@ -87,9 +88,12 @@ fun updateProjectPostHandler(
     return handler@{ request ->
         try {
             val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
-            val postId = request.arguments["post_id"]?.jsonPrimitive?.content
+            val postRef =
+                DoorayWebInputUtils.normalizePostReference(
+                    request.arguments["post_id"]?.jsonPrimitive?.content
+                )
 
-            if (postId.isNullOrBlank()) {
+            if (postRef == null) {
                 val errorResponse =
                     ToolException(
                         type = ToolException.PARAMETER_MISSING,
@@ -103,10 +107,11 @@ fun updateProjectPostHandler(
                 )
             }
 
-            val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+            val resolvedProjectId =
+                projectId ?: postRef.projectId ?: doorayClient.resolveProjectIdForPost(postRef.postId)
 
             // 기존 업무 정보 조회
-            val existingPostResponse = doorayClient.getPost(resolvedProjectId, postId)
+            val existingPostResponse = doorayClient.getPost(resolvedProjectId, postRef.postId)
             if (!existingPostResponse.header.isSuccessful) {
                 val errorResponse =
                     ToolException(
@@ -205,7 +210,7 @@ fun updateProjectPostHandler(
                     tagIds = tagIds
                 )
 
-            val response = doorayClient.updatePost(resolvedProjectId, postId, updateRequest)
+            val response = doorayClient.updatePost(resolvedProjectId, postRef.postId, updateRequest)
 
             if (response.header.isSuccessful) {
                 val successResponse =
@@ -225,6 +230,8 @@ fun updateProjectPostHandler(
 
                 CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(errorResponse))))
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(

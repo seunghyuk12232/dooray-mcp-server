@@ -3,6 +3,7 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -29,7 +30,7 @@ fun getProjectPostTool(): Tool {
                             put("type", "string")
                             put(
                                 "description",
-                                "업무 ID (dooray_project_list_posts로 조회 가능) (필수)"
+                                "업무 ID 또는 Dooray 웹 URL (예: /project/tasks/{postId}, /task/to/{postId}) (필수)"
                             )
                         }
                     },
@@ -44,10 +45,13 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
     return { request ->
         try {
             val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
-            val postId = request.arguments["post_id"]?.jsonPrimitive?.content
+            val postRef =
+                DoorayWebInputUtils.normalizePostReference(
+                    request.arguments["post_id"]?.jsonPrimitive?.content
+                )
 
             when {
-                postId == null -> {
+                postRef == null -> {
                     val errorResponse =
                         ToolException(
                             type = ToolException.PARAMETER_MISSING,
@@ -63,8 +67,9 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
                 }
 
                 else -> {
-                    val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
-                    val response = doorayClient.getPost(resolvedProjectId, postId)
+                    val resolvedProjectId =
+                        projectId ?: postRef.projectId ?: doorayClient.resolveProjectIdForPost(postRef.postId)
+                    val response = doorayClient.getPost(resolvedProjectId, postRef.postId)
 
                     if (response.header.isSuccessful) {
                         val post = response.result
@@ -100,6 +105,8 @@ fun getProjectPostHandler(doorayClient: DoorayClient): suspend (CallToolRequest)
                     }
                 }
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                 ToolException(

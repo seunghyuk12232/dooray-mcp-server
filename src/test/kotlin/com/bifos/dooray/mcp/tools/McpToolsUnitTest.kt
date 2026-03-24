@@ -3,6 +3,7 @@ package com.bifos.dooray.mcp.tools
 import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.types.*
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
@@ -244,6 +245,193 @@ class McpToolsUnitTest {
         val responseText = content.text ?: ""
         assertContains(responseText, "\"isError\": true")
         assertContains(responseText, "MISSING_PROJECT_ID")
+    }
+
+    @Test
+    @DisplayName("프로젝트 업무 목록 조회 도구 - 추가 필터를 모두 전달한다")
+    fun testGetProjectPostsHandlerPassesExtendedFilters() = runTest {
+        // given
+        val mockDoorayClient = mockk<DoorayClient>()
+
+        val mockResponse =
+            PostListResponse(
+                header =
+                    DoorayApiHeader(
+                        isSuccessful = true,
+                        resultCode = 0,
+                        resultMessage = "success"
+                    ),
+                result = emptyList(),
+                totalCount = 0
+            )
+
+        coEvery {
+            mockDoorayClient.getPosts(
+                projectId = any(),
+                page = any(),
+                size = any(),
+                fromMemberIds = any(),
+                toMemberIds = any(),
+                ccMemberIds = any(),
+                tagIds = any(),
+                parentPostId = any(),
+                postNumber = any(),
+                postWorkflowClasses = any(),
+                postWorkflowIds = any(),
+                milestoneIds = any(),
+                subjects = any(),
+                createdAt = any(),
+                updatedAt = any(),
+                dueAt = any(),
+                order = any()
+            )
+        } returns mockResponse
+
+        val mockRequest = mockk<CallToolRequest>()
+        every { mockRequest.arguments } returns
+                buildJsonObject {
+                    put("project_id", "project1")
+                    put("page", 1)
+                    put("size", 50)
+                    putJsonArray("from_member_ids") { add("writer1") }
+                    putJsonArray("to_member_ids") { add("worker1") }
+                    putJsonArray("cc_member_ids") { add("cc1") }
+                    putJsonArray("tag_ids") { add("tag1") }
+                    put("parent_post_id", "parent1")
+                    put("post_number", "POST-1")
+                    putJsonArray("post_workflow_classes") { add("working") }
+                    putJsonArray("post_workflow_ids") { add("workflow1") }
+                    putJsonArray("milestone_ids") { add("milestone1") }
+                    put("subjects", "검색어")
+                    put("created_at", "2026-03-01")
+                    put("updated_at", "2026-03-02")
+                    put("due_at", "2026-03-03")
+                    put("order", "-postUpdatedAt")
+                }
+
+        // when
+        val handler = getProjectPostsHandler(mockDoorayClient)
+        val result = handler(mockRequest)
+
+        // then
+        assertTrue(result.content.isNotEmpty())
+        val content = result.content.first() as TextContent
+        val responseText = content.text ?: ""
+        assertContains(responseText, "\"success\": true")
+
+        coVerify(exactly = 1) {
+            mockDoorayClient.getPosts(
+                projectId = "project1",
+                page = 1,
+                size = 50,
+                fromMemberIds = listOf("writer1"),
+                toMemberIds = listOf("worker1"),
+                ccMemberIds = listOf("cc1"),
+                tagIds = listOf("tag1"),
+                parentPostId = "parent1",
+                postNumber = "POST-1",
+                postWorkflowClasses = listOf("working"),
+                postWorkflowIds = listOf("workflow1"),
+                milestoneIds = listOf("milestone1"),
+                subjects = "검색어",
+                createdAt = "2026-03-01",
+                updatedAt = "2026-03-02",
+                dueAt = "2026-03-03",
+                order = "-postUpdatedAt"
+            )
+        }
+    }
+
+    @Test
+    @DisplayName("프로젝트 업무 목록 조회 도구 - project_id에 Dooray URL이 오면 검증 에러")
+    fun testGetProjectPostsHandlerRejectsUrlProjectId() = runTest {
+        val mockDoorayClient = mockk<DoorayClient>()
+
+        val mockRequest = mockk<CallToolRequest>()
+        every { mockRequest.arguments } returns
+                buildJsonObject {
+                    put("project_id", "https://nhnent.dooray.com/project/tasks/4294538452368557412")
+                }
+
+        val handler = getProjectPostsHandler(mockDoorayClient)
+        val result = handler(mockRequest)
+
+        assertTrue(result.content.isNotEmpty())
+        val content = result.content.first() as TextContent
+        val responseText = content.text ?: ""
+        assertContains(responseText, "\"isError\": true")
+        assertContains(responseText, "URL_NOT_ALLOWED_FOR_PROJECT_ID")
+    }
+
+    @Test
+    @DisplayName("업무 상세 조회 도구 - Dooray URL로 project_id 자동 조회")
+    fun testGetProjectPostHandlerResolvesFromDoorayUrl() = runTest {
+        val mockDoorayClient = mockk<DoorayClient>()
+
+        coEvery { mockDoorayClient.resolveProjectIdForPost("4285609060273170515") } returns "project1"
+        coEvery { mockDoorayClient.getPost("project1", "4285609060273170515") } returns
+                PostDetailResponse(
+                    header =
+                        DoorayApiHeader(
+                            isSuccessful = true,
+                            resultCode = 0,
+                            resultMessage = "success"
+                        ),
+                    result =
+                        PostDetail(
+                            id = "4285609060273170515",
+                            subject = "테스트 업무",
+                            project = ProjectInfo(id = "project1", code = "TEST"),
+                            taskNumber = "TEST-123",
+                            closed = false,
+                            createdAt = "2026-03-24T10:00:00+09:00",
+                            updatedAt = "2026-03-24T10:00:00+09:00",
+                            number = 123,
+                            body = PostBody(mimeType = "text/x-markdown", content = "본문"),
+                            users =
+                                PostUsers(
+                                    from =
+                                        PostUser(
+                                            type = "member",
+                                            member = Member(organizationMemberId = "writer1")
+                                        ),
+                                    to = emptyList(),
+                                    cc = emptyList()
+                                ),
+                            workflow =
+                                Workflow(
+                                    id = "workflow1",
+                                    name = "진행중"
+                                ),
+                            workflowClass = "working",
+                            priority = "normal",
+                            dueDate = null,
+                            dueDateFlag = null,
+                            parent = null,
+                            milestone = null,
+                            tags = emptyList(),
+                            files = emptyList(),
+                            fileIdList = emptyList()
+                        )
+                )
+
+        val mockRequest = mockk<CallToolRequest>()
+        every { mockRequest.arguments } returns
+                buildJsonObject {
+                    put("post_id", "https://nhnent.dooray.com/task/to/4285609060273170515?workflowClass=all")
+                }
+
+        val handler = getProjectPostHandler(mockDoorayClient)
+        val result = handler(mockRequest)
+
+        assertTrue(result.content.isNotEmpty())
+        val content = result.content.first() as TextContent
+        val responseText = content.text ?: ""
+        assertContains(responseText, "\"success\": true")
+        assertContains(responseText, "테스트 업무")
+
+        coVerify(exactly = 1) { mockDoorayClient.resolveProjectIdForPost("4285609060273170515") }
+        coVerify(exactly = 1) { mockDoorayClient.getPost("project1", "4285609060273170515") }
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.bifos.dooray.mcp.client.DoorayClient
 import com.bifos.dooray.mcp.exception.ToolException
 import com.bifos.dooray.mcp.types.PostCommentsResponseData
 import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
 import com.bifos.dooray.mcp.utils.JsonUtils
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
@@ -33,7 +34,7 @@ fun getPostCommentsTool(): Tool {
                                             put("type", "string")
                                             put(
                                                     "description",
-                                                    "업무 ID (dooray_project_list_posts로 조회 가능)"
+                                                    "업무 ID 또는 Dooray 웹 URL (예: /project/tasks/{postId}, /task/to/{postId})"
                                             )
                                         }
                                         putJsonObject("page") {
@@ -68,12 +69,15 @@ fun getPostCommentsHandler(
     return handler@{ request ->
         try {
             val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
-            val postId = request.arguments["post_id"]?.jsonPrimitive?.content
+            val postRef =
+                    DoorayWebInputUtils.normalizePostReference(
+                            request.arguments["post_id"]?.jsonPrimitive?.content
+                    )
             val page = request.arguments["page"]?.jsonPrimitive?.content?.toIntOrNull()
             val size = request.arguments["size"]?.jsonPrimitive?.content?.toIntOrNull()
             val order = request.arguments["order"]?.jsonPrimitive?.content
 
-            if (postId.isNullOrBlank()) {
+            if (postRef == null) {
                 val errorResponse =
                         ToolException(
                                         type = ToolException.PARAMETER_MISSING,
@@ -87,9 +91,10 @@ fun getPostCommentsHandler(
                 )
             }
 
-            val resolvedProjectId = projectId ?: doorayClient.resolveProjectIdForPost(postId)
+            val resolvedProjectId =
+                    projectId ?: postRef.projectId ?: doorayClient.resolveProjectIdForPost(postRef.postId)
 
-            val response = doorayClient.getPostComments(resolvedProjectId, postId, page, size, order)
+            val response = doorayClient.getPostComments(resolvedProjectId, postRef.postId, page, size, order)
 
             if (response.header.isSuccessful) {
                 val successResponse =
@@ -119,6 +124,8 @@ fun getPostCommentsHandler(
 
                 CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(errorResponse))))
             }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
         } catch (e: Exception) {
             val errorResponse =
                     ToolException(
