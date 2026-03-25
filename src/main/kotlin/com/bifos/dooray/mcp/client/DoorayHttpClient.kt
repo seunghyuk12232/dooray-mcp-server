@@ -1,5 +1,6 @@
 package com.bifos.dooray.mcp.client
 
+import com.bifos.dooray.mcp.constants.EnvVariableConst.DOORAY_PRIORITY_PROJECT_CODES
 import com.bifos.dooray.mcp.exception.CustomException
 import com.bifos.dooray.mcp.types.*
 import io.ktor.client.*
@@ -21,6 +22,9 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
 
     companion object {
         private const val MAX_CACHE_SIZE = 500
+        private const val PRIVATE_PROJECT_PLACEHOLDER = "__PRIVATE__"
+        private const val DEFAULT_PRIORITY_PROJECT_CODES =
+            "웹보드개발랩-전체공유,한게임포커통합-업데이트관리,$PRIVATE_PROJECT_PLACEHOLDER,포커클래식-QA,pc포커-bts"
     }
 
     private val log = LoggerFactory.getLogger(DoorayHttpClient::class.java)
@@ -472,6 +476,75 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
         }
     }
 
+    // ============ 우선순위 프로젝트 정렬 헬퍼 ============
+
+    private fun getPriorityProjectCodes(): List<String> {
+        val env = System.getenv(DOORAY_PRIORITY_PROJECT_CODES)?.trim()?.ifEmpty { null }
+        return (env ?: DEFAULT_PRIORITY_PROJECT_CODES)
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun <T> sortByPriority(
+        items: List<T>,
+        priorityCodes: List<String>,
+        getCode: (T) -> String,
+        getType: (T) -> String?
+    ): List<T> {
+        val priorityMap = mutableMapOf<Int, MutableList<T>>()
+        val remaining = mutableListOf<T>()
+
+        for (item in items) {
+            val code = getCode(item)
+            val type = getType(item)
+            val priorityIndex = priorityCodes.indexOfFirst { entry ->
+                if (entry == PRIVATE_PROJECT_PLACEHOLDER) type == "private"
+                else entry == code
+            }
+            if (priorityIndex >= 0) {
+                priorityMap.getOrPut(priorityIndex) { mutableListOf() }.add(item)
+            } else {
+                remaining.add(item)
+            }
+        }
+
+        val sorted = mutableListOf<T>()
+        for (i in priorityCodes.indices) {
+            priorityMap[i]?.let { sorted.addAll(it) }
+        }
+        sorted.addAll(remaining)
+        return sorted
+    }
+
+    private suspend fun fetchAllProjects(): List<Project> {
+        val allProjects = mutableListOf<Project>()
+        var page = 0
+        val pageSize = 100
+        while (true) {
+            val response = getProjects(page = page, size = pageSize)
+            if (!response.header.isSuccessful || response.result.isEmpty()) break
+            allProjects.addAll(response.result)
+            if (response.result.size < pageSize) break
+            page++
+        }
+        return allProjects
+    }
+
+    private suspend fun fetchAllWikis(): List<Wiki> {
+        val allWikis = mutableListOf<Wiki>()
+        var page = 0
+        val pageSize = 200
+        while (true) {
+            val response = getWikis(page = page, size = pageSize)
+            if (!response.header.isSuccessful || response.result.isEmpty()) break
+            allWikis.addAll(response.result)
+            if (response.result.size < pageSize) break
+            page++
+        }
+        return allWikis
+    }
+
     // ============ ID 자동 조회 (resolve) API 구현 ============
 
     override suspend fun resolveProjectIdForPost(postId: String): String {
@@ -481,33 +554,30 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
         log.info("🔍 post_id=$postId 에 대한 project_id 자동 조회 시작...")
 
         return withTimeout(30_000) {
-            var page = 0
-            val pageSize = 100
+            val allProjects = fetchAllProjects()
+            val priorityCodes = getPriorityProjectCodes()
+            val sortedProjects = sortByPriority(
+                allProjects, priorityCodes,
+                getCode = { it.code },
+                getType = { it.type }
+            )
 
-            while (true) {
-                val projectsResponse = getProjects(page = page, size = pageSize)
-                if (!projectsResponse.header.isSuccessful || projectsResponse.result.isEmpty()) {
-                    break
-                }
+            log.info("📋 우선순위 적용된 프로젝트 검색 순서: ${sortedProjects.take(5).joinToString { it.code }}")
 
-                for (project in projectsResponse.result) {
-                    try {
-                        val postResponse = getPost(project.id, postId)
-                        if (postResponse.header.isSuccessful) {
-                            log.info("✅ post_id=$postId → project_id=${project.id} (${project.code}) 매핑 완료")
-                            if (postProjectIdCache.size < MAX_CACHE_SIZE) {
-                                postProjectIdCache[postId] = project.id
-                            }
-                            return@withTimeout project.id
+            for (project in sortedProjects) {
+                try {
+                    val postResponse = getPost(project.id, postId)
+                    if (postResponse.header.isSuccessful && postResponse.result.id == postId) {
+                        log.info("✅ post_id=$postId → project_id=${project.id} (${project.code}) 매핑 완료")
+                        if (postProjectIdCache.size < MAX_CACHE_SIZE) {
+                            postProjectIdCache[postId] = project.id
                         }
-                    } catch (e: Exception) {
-                        // 해당 프로젝트에 업무가 없으면 다음 프로젝트로
-                        log.debug("프로젝트 ${project.id}(${project.code})에서 업무 $postId 미발견")
+                        return@withTimeout project.id
                     }
+                } catch (e: Exception) {
+                    // 해당 프로젝트에 업무가 없으면 다음 프로젝트로
+                    log.debug("프로젝트 ${project.id}(${project.code})에서 업무 $postId 미발견")
                 }
-
-                if (projectsResponse.result.size < pageSize) break
-                page++
             }
 
             throw CustomException("post_id=$postId 에 해당하는 프로젝트를 찾을 수 없습니다. 접근 권한이 있는 프로젝트에 해당 업무가 존재하는지 확인하세요.", null)
@@ -521,32 +591,29 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
         log.info("🔍 page_id=$pageId 에 대한 wiki_id 자동 조회 시작...")
 
         return withTimeout(30_000) {
-            var page = 0
-            val pageSize = 200
+            val allWikis = fetchAllWikis()
+            val priorityCodes = getPriorityProjectCodes()
+            val sortedWikis = sortByPriority(
+                allWikis, priorityCodes,
+                getCode = { it.name },
+                getType = { it.type }
+            )
 
-            while (true) {
-                val wikisResponse = getWikis(page = page, size = pageSize)
-                if (!wikisResponse.header.isSuccessful || wikisResponse.result.isEmpty()) {
-                    break
-                }
+            log.info("📋 우선순위 적용된 위키 검색 순서: ${sortedWikis.take(5).joinToString { it.name }}")
 
-                for (wiki in wikisResponse.result) {
-                    try {
-                        val wikiPageResponse = getWikiPage(wiki.id, pageId)
-                        if (wikiPageResponse.header.isSuccessful) {
-                            log.info("✅ page_id=$pageId → wiki_id=${wiki.id} (${wiki.name}) 매핑 완료")
-                            if (pageWikiIdCache.size < MAX_CACHE_SIZE) {
-                                pageWikiIdCache[pageId] = wiki.id
-                            }
-                            return@withTimeout wiki.id
+            for (wiki in sortedWikis) {
+                try {
+                    val wikiPageResponse = getWikiPage(wiki.id, pageId)
+                    if (wikiPageResponse.header.isSuccessful && wikiPageResponse.result.id == pageId) {
+                        log.info("✅ page_id=$pageId → wiki_id=${wiki.id} (${wiki.name}) 매핑 완료")
+                        if (pageWikiIdCache.size < MAX_CACHE_SIZE) {
+                            pageWikiIdCache[pageId] = wiki.id
                         }
-                    } catch (e: Exception) {
-                        log.debug("위키 ${wiki.id}(${wiki.name})에서 페이지 $pageId 미발견")
+                        return@withTimeout wiki.id
                     }
+                } catch (e: Exception) {
+                    log.debug("위키 ${wiki.id}(${wiki.name})에서 페이지 $pageId 미발견")
                 }
-
-                if (wikisResponse.result.size < pageSize) break
-                page++
             }
 
             throw CustomException("page_id=$pageId 에 해당하는 위키를 찾을 수 없습니다. 접근 권한이 있는 위키에 해당 페이지가 존재하는지 확인하세요.", null)
