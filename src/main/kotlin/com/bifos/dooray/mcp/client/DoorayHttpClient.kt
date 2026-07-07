@@ -665,17 +665,21 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
     }
 
     private suspend fun fetchAllProjects(): List<Project> {
-        val allProjects = mutableListOf<Project>()
-        var page = 0
+        // Dooray /project/v1/projects 는 type 미지정 시 개인(private) 프로젝트를 제외한다(실측).
+        // 개인 프로젝트(@내계정)의 업무도 project_id 자동 조회가 가능하도록 기본 + private 를 모두 수집·병합한다.
+        val byId = LinkedHashMap<String, Project>()
         val pageSize = 100
-        while (true) {
-            val response = getProjects(page = page, size = pageSize)
-            if (!response.header.isSuccessful || response.result.isEmpty()) break
-            allProjects.addAll(response.result)
-            if (response.result.size < pageSize) break
-            page++
+        for (type in listOf<String?>(null, "private")) {
+            var page = 0
+            while (true) {
+                val response = getProjects(page = page, size = pageSize, type = type)
+                if (!response.header.isSuccessful || response.result.isEmpty()) break
+                response.result.forEach { byId[it.id] = it }
+                if (response.result.size < pageSize) break
+                page++
+            }
         }
-        return allProjects
+        return byId.values.toList()
     }
 
     private suspend fun fetchAllWikis(): List<Wiki> {
