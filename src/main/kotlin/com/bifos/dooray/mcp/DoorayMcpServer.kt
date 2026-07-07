@@ -159,6 +159,23 @@ class DoorayMcpServer {
         // 16. 업무 댓글 삭제
         addTool(deletePostCommentTool(), deletePostCommentHandler(doorayHttpClient))
 
+        // ============ 업무 첨부파일 / 이동 / 단건조회 도구들 ============
+
+        // 17. 업무 첨부파일 업로드
+        addTool(uploadPostFileTool(), uploadPostFileHandler(doorayHttpClient))
+
+        // 18. 업무 첨부파일 목록 조회
+        addTool(getPostFilesTool(), getPostFilesHandler(doorayHttpClient))
+
+        // 19. 업무 첨부파일 삭제
+        addTool(deletePostFileTool(), deletePostFileHandler(doorayHttpClient))
+
+        // 20. 업무 이동 (다른 프로젝트로)
+        addTool(movePostTool(), movePostHandler(doorayHttpClient))
+
+        // 21. 업무 단건 조회 (project_id 불필요)
+        addTool(getPostByIdTool(), getPostByIdHandler(doorayHttpClient))
+
         log.info("Successfully added $toolCount tools to MCP server")
     }
 }

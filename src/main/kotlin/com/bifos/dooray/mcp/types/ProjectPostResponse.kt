@@ -160,9 +160,91 @@ typealias PostListResponse = PostListApiResponse
 
 typealias PostDetailResponse = DoorayApiResponse<PostDetail>
 
+/**
+ * GET /project/v1/posts/{post-id} (프로젝트 비지정 단건 조회) 응답용.
+ * 이 글로벌 엔드포인트는 project-scoped 조회와 달리 workflow/workflowClass 등을
+ * 생략하므로, project-scoped PostDetail 과 별도로 위험 필드를 nullable 로 둔다.
+ */
+@Serializable
+data class PostByIdDetail(
+        val id: String,
+        val subject: String,
+        val project: ProjectInfo,
+        val taskNumber: String,
+        val closed: Boolean,
+        val createdAt: String,
+        val dueDate: String? = null,
+        val dueDateFlag: Boolean? = null,
+        val updatedAt: String,
+        val number: Int,
+        val priority: String,
+        val parent: ParentPost? = null,
+        val workflowClass: String? = null,
+        val workflow: Workflow? = null,
+        val milestone: Milestone? = null,
+        val tags: List<Tag> = emptyList(),
+        val body: PostBody? = null,
+        val users: PostUsers? = null,
+        val files: List<PostFile> = emptyList(),
+        val fileIdList: List<String> = emptyList()
+)
+
+typealias PostByIdResponse = DoorayApiResponse<PostByIdDetail>
+
 typealias CreatePostApiResponse = DoorayApiResponse<CreatePostResponse>
 
 typealias UpdatePostResponse = DoorayApiUnitResponse
+
+// ============ 업무 첨부파일 / 이동 관련 타입 ============
+
+/** 첨부파일 업로드 응답 result */
+@Serializable data class PostFileUploadResult(val id: String)
+
+/** 첨부파일 메타 정보 (목록/상세 조회용) */
+@Serializable
+data class PostFileMeta(
+        val id: String,
+        val name: String? = null,
+        val size: Long? = null,
+        val mimeType: String? = null,
+        val createdAt: String? = null,
+        val creator: PostUser? = null
+)
+
+/** 첨부파일 목록 API 응답 */
+@Serializable
+data class PostFileListApiResponse(
+        val header: DoorayApiHeader,
+        val result: List<PostFileMeta> = emptyList(),
+        val totalCount: Int? = null
+)
+
+/** 업무 이동 요청 */
+@Serializable
+data class MovePostRequest(
+        val targetProjectId: String? = null, // 미지정 시 동일 프로젝트로 간주
+        val includeSubPosts: Boolean = true
+)
+
+/** 업무 이동 응답의 프로젝트 정보 (move 응답의 project 는 id 만 포함) */
+@Serializable data class MovePostProject(val id: String? = null)
+
+/** 업무 이동 응답 result (모든 필드 nullable — 서버가 result 를 축약/생략해도 성공을 실패로 뒤집지 않도록) */
+@Serializable
+data class MovePostResult(val post: PostInfo? = null, val project: MovePostProject? = null)
+
+// API 응답 타입 별칭들
+typealias UploadPostFileResponse = DoorayApiResponse<PostFileUploadResult>
+
+typealias PostFileListResponse = PostFileListApiResponse
+
+/** 업무 이동 API 응답 (result 키가 생략된 200 응답도 관용하도록 default 지정) */
+@Serializable
+data class MovePostApiResponse(val header: DoorayApiHeader, val result: MovePostResult? = null)
+
+typealias MovePostResponse = MovePostApiResponse
+
+typealias DeletePostFileResponse = DoorayApiUnitResponse
 
 /** 업무 댓글 본문 */
 @Serializable data class PostCommentBody(val mimeType: String, val content: String)

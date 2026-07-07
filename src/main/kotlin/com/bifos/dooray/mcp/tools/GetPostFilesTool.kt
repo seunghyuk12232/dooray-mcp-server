@@ -1,0 +1,124 @@
+package com.bifos.dooray.mcp.tools
+
+import com.bifos.dooray.mcp.client.DoorayClient
+import com.bifos.dooray.mcp.exception.ToolException
+import com.bifos.dooray.mcp.types.ToolSuccessResponse
+import com.bifos.dooray.mcp.utils.DoorayWebInputUtils
+import com.bifos.dooray.mcp.utils.JsonUtils
+import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.Tool
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+
+fun getPostFilesTool(): Tool {
+    return Tool(
+        name = "dooray_project_get_post_files",
+        description = "두레이 프로젝트 업무의 첨부파일 목록을 조회합니다. (general 타입 첨부파일만 응답)",
+        inputSchema =
+            Tool.Input(
+                properties =
+                    buildJsonObject {
+                        putJsonObject("project_id") {
+                            put("type", "string")
+                            put("description", "프로젝트 ID (선택사항, 생략 시 post_id로 자동 조회)")
+                        }
+                        putJsonObject("post_id") {
+                            put("type", "string")
+                            put(
+                                "description",
+                                "업무 ID 또는 Dooray 웹 URL (예: /project/tasks/{postId}, /task/to/{postId}) (필수)"
+                            )
+                        }
+                    },
+                required = listOf("post_id")
+            ),
+        outputSchema = null,
+        annotations = null
+    )
+}
+
+fun getPostFilesHandler(
+    doorayClient: DoorayClient
+): suspend (CallToolRequest) -> CallToolResult {
+    return handler@{ request ->
+        try {
+            val projectId = request.arguments["project_id"]?.jsonPrimitive?.content
+            val postRef =
+                DoorayWebInputUtils.normalizePostReference(
+                    request.arguments["post_id"]?.jsonPrimitive?.content
+                )
+
+            if (postRef == null) {
+                return@handler CallToolResult(
+                    content =
+                        listOf(
+                            TextContent(
+                                JsonUtils.toJsonString(
+                                    ToolException(
+                                        type = ToolException.PARAMETER_MISSING,
+                                        message = "post_id 파라미터가 필요합니다.",
+                                        code = "MISSING_POST_ID"
+                                    )
+                                        .toErrorResponse()
+                                )
+                            )
+                        )
+                )
+            }
+
+            val resolvedProjectId =
+                projectId ?: postRef.projectId ?: doorayClient.resolveProjectIdForPost(postRef.postId)
+
+            val response = doorayClient.getPostFiles(resolvedProjectId, postRef.postId)
+
+            if (response.header.isSuccessful) {
+                val successResponse =
+                    ToolSuccessResponse(
+                        data = response.result,
+                        message =
+                            "📎 첨부파일 목록을 성공적으로 조회했습니다 (총 ${response.result.size}개)"
+                    )
+                CallToolResult(
+                    content = listOf(TextContent(JsonUtils.toJsonString(successResponse)))
+                )
+            } else {
+                CallToolResult(
+                    content =
+                        listOf(
+                            TextContent(
+                                JsonUtils.toJsonString(
+                                    ToolException(
+                                        type = ToolException.API_ERROR,
+                                        message = response.header.resultMessage,
+                                        code = "DOORAY_API_${response.header.resultCode}"
+                                    )
+                                        .toErrorResponse()
+                                )
+                            )
+                        )
+                )
+            }
+        } catch (e: ToolException) {
+            CallToolResult(content = listOf(TextContent(JsonUtils.toJsonString(e.toErrorResponse()))))
+        } catch (e: Exception) {
+            CallToolResult(
+                content =
+                    listOf(
+                        TextContent(
+                            JsonUtils.toJsonString(
+                                ToolException(
+                                    type = ToolException.INTERNAL_ERROR,
+                                    message = "내부 오류가 발생했습니다: ${e.message}"
+                                )
+                                    .toErrorResponse()
+                            )
+                        )
+                    )
+            )
+        }
+    }
+}
