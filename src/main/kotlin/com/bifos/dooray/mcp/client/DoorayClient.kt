@@ -90,6 +90,38 @@ interface DoorayClient {
         parentPostId: String
     ): DoorayApiUnitResponse
 
+    /** 업무를 다른 프로젝트로 이동합니다. (단계/태그 정보는 소실됨) */
+    suspend fun movePost(
+        projectId: String,
+        postId: String,
+        targetProjectId: String? = null,
+        includeSubPosts: Boolean = true
+    ): MovePostResponse
+
+    /** projectId 없이 post_id 만으로 업무 상세를 조회합니다. (글로벌 엔드포인트 — workflow 등 일부 필드 생략됨) */
+    suspend fun getPostById(postId: String): PostByIdResponse
+
+    // ============ 업무 첨부파일 관련 API ============
+
+    /** 업무에 첨부파일을 업로드합니다. (multipart, file-api 호스트 사용) */
+    suspend fun uploadPostFile(
+        projectId: String,
+        postId: String,
+        fileName: String,
+        fileBytes: ByteArray,
+        mimeType: String? = null
+    ): UploadPostFileResponse
+
+    /** 업무의 첨부파일 목록을 조회합니다. (general 타입만 응답) */
+    suspend fun getPostFiles(projectId: String, postId: String): PostFileListResponse
+
+    /** 업무의 첨부파일을 삭제합니다. */
+    suspend fun deletePostFile(
+        projectId: String,
+        postId: String,
+        fileId: String
+    ): DeletePostFileResponse
+
     // ============ 업무 댓글 관련 API ============
 
     /** 업무에 댓글을 생성합니다. */

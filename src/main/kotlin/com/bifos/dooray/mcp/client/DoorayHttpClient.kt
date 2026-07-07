@@ -9,6 +9,7 @@ import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
 import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -29,6 +30,8 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
 
     private val log = LoggerFactory.getLogger(DoorayHttpClient::class.java)
     private val httpClient: HttpClient
+    // 파일(multipart) 업로드 전용 클라이언트 (JSON 기본 Content-Type 미적용)
+    private val fileHttpClient: HttpClient
 
     // post_id -> project_id 매핑 캐시
     private val postProjectIdCache = ConcurrentHashMap<String, String>()
@@ -37,6 +40,7 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
 
     init {
         httpClient = initHttpClient()
+        fileHttpClient = initFileHttpClient()
     }
 
     private fun initHttpClient(): HttpClient {
@@ -82,6 +86,66 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
                 socketTimeoutMillis = 10_000
             }
         }
+    }
+
+    private fun initFileHttpClient(): HttpClient {
+        // 파일 전용 클라이언트: 기본 Content-Type(JSON)을 걸지 않아
+        // MultiPartFormDataContent 가 자신의 multipart/form-data 경계를 그대로 사용하게 한다.
+        // baseUrl 을 기본값으로 두지 않고 호출부에서 file-api 절대 URL 을 직접 지정한다.
+        return HttpClient {
+            defaultRequest { header("Authorization", "dooray-api $doorayApiKey") }
+
+            install(ContentNegotiation) {
+                json(
+                        Json {
+                            ignoreUnknownKeys = true
+                            prettyPrint = true
+                        }
+                )
+            }
+
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                connectTimeoutMillis = 10_000
+                socketTimeoutMillis = 60_000
+            }
+        }
+    }
+
+    /**
+     * 파일 업로드 URL 을 구성한다.
+     * 파일 업로드는 api 호스트가 아니라 file-api 호스트의 /uploads 경로로 라우팅된다.
+     * (api.dooray.com 에 직접 POST 하면 307 로 이 Location 을 알려준다 — 공식 API 문서 참고)
+     */
+    private fun buildUploadUrl(path: String): String {
+        val trimmed = baseUrl.trimEnd('/')
+        val fileHost = trimmed.replaceFirst("://api.", "://file-api.")
+        if (fileHost == trimmed) {
+            log.warn(
+                    "파일 업로드 호스트 치환이 적용되지 않았습니다(baseUrl=$trimmed). " +
+                            "api.dooray.com 형식이 아니면 업로드가 실패(307)할 수 있습니다."
+            )
+        }
+        return "$fileHost/uploads$path"
+    }
+
+    /**
+     * multipart Content-Disposition 의 파일명 파라미터를 구성한다.
+     * Dooray 서버는 filename="..." 의 UTF-8 값을 그대로 보존하며 RFC 5987 filename* 는
+     * 지원하지 않는다(단독 지정 시 업로드 실패, 병기 시 무시 — 실측 확인). 따라서 UTF-8
+     * 파일명은 유지하되 헤더를 깨뜨리는 따옴표/역슬래시/제어문자만 '_' 로 치환한다.
+     */
+    private fun fileNameDispositionParams(fileName: String): String {
+        val safe = buildString {
+            for (c in fileName) {
+                when {
+                    c == '"' || c == '\\' -> append('_')
+                    c.code < 0x20 -> append('_')
+                    else -> append(c)
+                }
+            }
+        }
+        return "filename=\"$safe\""
     }
 
     /**
@@ -375,6 +439,89 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
             httpClient.post("/project/v1/projects/$projectId/posts/$postId/set-parent-post") {
                 setBody(SetParentPostRequest(parentPostId))
             }
+        }
+    }
+
+    override suspend fun movePost(
+            projectId: String,
+            postId: String,
+            targetProjectId: String?,
+            includeSubPosts: Boolean
+    ): MovePostResponse {
+        return executeApiCall(
+                operation = "POST /project/v1/projects/$projectId/posts/$postId/move",
+                successMessage = "✅ 업무 이동 성공"
+        ) {
+            httpClient.post("/project/v1/projects/$projectId/posts/$postId/move") {
+                setBody(MovePostRequest(targetProjectId, includeSubPosts))
+            }
+        }
+    }
+
+    override suspend fun getPostById(postId: String): PostByIdResponse {
+        return executeApiCall(
+                operation = "GET /project/v1/posts/$postId",
+                successMessage = "✅ 업무 단건 조회 성공"
+        ) { httpClient.get("/project/v1/posts/$postId") }
+    }
+
+    // ============ 업무 첨부파일 관련 API 구현 ============
+
+    override suspend fun uploadPostFile(
+            projectId: String,
+            postId: String,
+            fileName: String,
+            fileBytes: ByteArray,
+            mimeType: String?
+    ): UploadPostFileResponse {
+        val uploadUrl = buildUploadUrl("/project/v1/projects/$projectId/posts/$postId/files")
+        return executeApiCall(
+                operation = "POST $uploadUrl",
+                successMessage = "✅ 업무 첨부파일 업로드 성공"
+        ) {
+            fileHttpClient.post(uploadUrl) {
+                setBody(
+                        MultiPartFormDataContent(
+                                formData {
+                                    append(
+                                            "file",
+                                            fileBytes,
+                                            Headers.build {
+                                                append(
+                                                        HttpHeaders.ContentDisposition,
+                                                        fileNameDispositionParams(fileName)
+                                                )
+                                                append(
+                                                        HttpHeaders.ContentType,
+                                                        mimeType ?: "application/octet-stream"
+                                                )
+                                            }
+                                    )
+                                }
+                        )
+                )
+            }
+        }
+    }
+
+    override suspend fun getPostFiles(projectId: String, postId: String): PostFileListResponse {
+        return executeApiCall(
+                operation = "GET /project/v1/projects/$projectId/posts/$postId/files",
+                successMessage = "✅ 업무 첨부파일 목록 조회 성공"
+        ) { httpClient.get("/project/v1/projects/$projectId/posts/$postId/files") }
+    }
+
+    override suspend fun deletePostFile(
+            projectId: String,
+            postId: String,
+            fileId: String
+    ): DeletePostFileResponse {
+        return executeApiCallForNullableResult(
+                operation =
+                        "DELETE /project/v1/projects/$projectId/posts/$postId/files/$fileId",
+                successMessage = "✅ 업무 첨부파일 삭제 성공"
+        ) {
+            httpClient.delete("/project/v1/projects/$projectId/posts/$postId/files/$fileId")
         }
     }
 
