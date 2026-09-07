@@ -25,7 +25,7 @@ class DoorayHttpClient(private val baseUrl: String, private val doorayApiKey: St
         private const val MAX_CACHE_SIZE = 500
         private const val PRIVATE_PROJECT_PLACEHOLDER = "__PRIVATE__"
         private const val DEFAULT_PRIORITY_PROJECT_CODES =
-            "웹보드개발랩-전체공유,한게임포커통합-업데이트관리,$PRIVATE_PROJECT_PLACEHOLDER,포커클래식-QA,pc포커-bts"
+            "웹보드개발랩-전체공유,포커서버팀-개발,한게임포커통합-업데이트관리,$PRIVATE_PROJECT_PLACEHOLDER,포커클래식-QA,pc포커-bts"
     }
 
     private val log = LoggerFactory.getLogger(DoorayHttpClient::class.java)
